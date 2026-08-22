@@ -95,8 +95,38 @@ class AgentLog(Base):
 # Engine / session factory
 # ─────────────────────────────────────────────────────────────────────────────
 
-_connect_args = {"check_same_thread": False} if settings.DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(settings.DATABASE_URL, connect_args=_connect_args, echo=False)
+def _normalize_db_url(url: str) -> str:
+    """
+    Supabase (and some other providers) hand out URLs starting with
+    'postgres://'. SQLAlchemy 1.4+/2.x requires the 'postgresql://' scheme
+    with psycopg2, so rewrite it if needed.
+    """
+    if url.startswith("postgres://"):
+        return "postgresql://" + url[len("postgres://"):]
+    return url
+
+
+_DB_URL = _normalize_db_url(settings.DATABASE_URL)
+_is_sqlite = _DB_URL.startswith("sqlite")
+_is_postgres = _DB_URL.startswith("postgresql")
+
+_connect_args = {}
+if _is_sqlite:
+    _connect_args = {"check_same_thread": False}
+elif _is_postgres:
+    # Supabase requires SSL, and Supabase's pooled connection (pgbouncer,
+    # port 6543) can silently drop idle connections — sslmode + pool_pre_ping
+    # + pool_recycle keep long-lived workers from erroring on a stale conn.
+    _connect_args = {"sslmode": "require"}
+
+_engine_kwargs = {"connect_args": _connect_args, "echo": False}
+if _is_postgres:
+    _engine_kwargs.update(
+        pool_pre_ping=True,   # test connection before using it
+        pool_recycle=300,     # recycle every 5 min, well under pgbouncer/Supabase idle timeout
+    )
+
+engine = create_engine(_DB_URL, **_engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
