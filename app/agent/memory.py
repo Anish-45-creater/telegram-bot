@@ -21,7 +21,7 @@ def get_memory(db: Session, user_id: int) -> list[dict]:
         .all()
     )
     turns.reverse()
-    return [{"role": t.role, "content": t.content} for t in turns]
+    return [{"role": t.role, "content": t.content, "intent": t.intent} for t in turns]
 
 
 def save_turn(db: Session, user_id: int, role: str, content: str, intent: str = None):
